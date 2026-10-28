@@ -866,7 +866,11 @@ export type LocalFolder = {
    */
   datedBy: { nfo: number; created: number; file: number }
   /** The files, or shows' folders, linked to an IMDb identifier by hand. */
-  links: { unit: string; imdbId: string }[]
+  /**
+   * The units linked by hand, and whether a metadata addon of the server described the title, as
+   * the folder's kind, when their files were last matched to it.
+   */
+  links: { unit: string; imdbId: string; described: boolean }[]
   /** The episodes given by hand to the titles of shows' discs. */
   episodes: GivenEpisode[]
   /** Whether its titles show the artwork beside their files rather than the addons'. */
@@ -904,6 +908,11 @@ export type LocalFolder = {
   searchRetryAt: string | null
   /** The files left unmatched as no addon of the server describes and searches titles of its kind. */
   noSearch: number
+  /**
+   * The episodes its files hold that their series' metadata addon does not list, as the series were
+   * last described; they are listed all the same, named after their files.
+   */
+  unlistedEpisodes: number
 }
 
 /**
@@ -1421,6 +1430,17 @@ export const refreshLibrary = (library: LibraryKey) =>
 /** Stops the refresh of one of the server's libraries, running or waiting. */
 export const stopLibraryRefresh = (library: LibraryKey) =>
   request<void>('POST', '/scopes/shared/libraries/refresh/stop', library)
+
+/** How many users keep an order of libraries of their own, saved from a Jellyfin app. */
+export type LibraryOrders = { users: number }
+
+/** Counts the users who keep an order of libraries of their own. */
+export const libraryOrders = () =>
+  request<LibraryOrders>('GET', '/scopes/shared/libraries/user-orders')
+
+/** Apply this order to every user: forgets the orders of libraries users saved. */
+export const applyLibraryOrder = () =>
+  request<LibraryOrders>('DELETE', '/scopes/shared/libraries/user-orders')
 
 /** The XMLTV guide of a TV catalog and how its last fetch went. */
 export type Guide = {
