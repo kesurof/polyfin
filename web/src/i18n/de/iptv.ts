@@ -26,6 +26,10 @@ const iptv: typeof en = {
         'Der letzte Download ist fehlgeschlagen: Der Server hat keine Kanalliste zurückgegeben oder die Anmeldung abgelehnt. Die bisherigen Kanäle bleiben erhalten.',
       rate_limited:
         'Der letzte Download ist fehlgeschlagen: Der Server hat Polyfin gebeten, langsamer zu werden. In einigen Minuten wird es erneut versucht; die bisherigen Kanäle bleiben erhalten.',
+      file_unreadable:
+        'Der letzte Download ist fehlgeschlagen: Die Datei ist weg, oder Polyfin kann sie nicht mehr lesen. Die bisherigen Kanäle bleiben erhalten.',
+      file_refused:
+        'Der letzte Download ist fehlgeschlagen: Nur Administratoren können eine Datei des Servers verwenden. Die bisherigen Kanäle bleiben erhalten.',
     } as Record<string, string>,
   },
   lineup: {
@@ -64,6 +68,10 @@ const iptv: typeof en = {
         'Der letzte Abruf ist fehlgeschlagen: Das Add-on hat die Kanäle dieses Katalogs nicht aufgelistet. Versuche es später erneut.',
       rate_limited:
         'Der letzte Abruf ist fehlgeschlagen: Der Server hat Polyfin gebeten, langsamer zu werden. In einigen Minuten wird es erneut versucht.',
+      file_unreadable:
+        'Der letzte Abruf ist fehlgeschlagen: Die Datei ist weg, oder Polyfin kann sie nicht mehr lesen.',
+      file_refused:
+        'Der letzte Abruf ist fehlgeschlagen: Nur Administratoren können eine Datei des Servers verwenden.',
     } as Record<string, string>,
     sectionsLabel: 'Abschnitte',
     sections: {
@@ -363,6 +371,8 @@ const iptv: typeof en = {
         dead: 'Kein Live-Stream',
         refused: 'Vom Anbieter abgelehnt',
         timeout: 'Keine Antwort',
+        drm: 'Braucht ein DRM, das Polyfin nicht unterstützt',
+        keys: 'Die Schlüssel der Liste entschlüsseln ihn nicht',
       },
       leftOutUntil: 'ausgelassen bis',
       retry: 'Alle Streams erneut versuchen',
@@ -379,6 +389,9 @@ const iptv: typeof en = {
       address: 'Adresse des Fernsehprogramms',
       addressHint:
         'Unkomprimierte oder komprimierte (.gz) XMLTV-Datei. Höchstens 10 Fernsehprogramme.',
+      addressOrFile: 'Adresse oder Datei des Fernsehprogramms',
+      addressOrFileHint:
+        'Unkomprimierte oder komprimierte (.gz) XMLTV-Datei, über ihre Adresse oder ihren Pfad auf dem Server. Höchstens 10 Fernsehprogramme.',
       tooMany:
         'Dieser Katalog hat 10 Fernsehprogramme: Entferne eines, um ein weiteres hinzuzufügen.',
       add: 'Hinzufügen',

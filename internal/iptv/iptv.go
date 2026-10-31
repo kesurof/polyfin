@@ -21,6 +21,8 @@ import (
 
 	"github.com/moodiness/polyfin/internal/accounts"
 	"github.com/moodiness/polyfin/internal/addons"
+	"github.com/moodiness/polyfin/internal/drm"
+	"github.com/moodiness/polyfin/internal/serverfile"
 	"github.com/moodiness/polyfin/internal/stremio"
 )
 
@@ -32,6 +34,10 @@ const (
 	errorTooLarge       = "too_large"
 	errorMalformed      = "malformed"
 	errorRateLimited    = "rate_limited"
+	// A list that is a file of the server is missing or unreadable, or is
+	// a member's (see ErrLocalFile).
+	errorFileUnreadable = "file_unreadable"
+	errorFileRefused    = "file_refused"
 )
 
 // Backoff is how long after its failures-th failure in a row a list or a
@@ -55,6 +61,10 @@ func failureCode(err error) string {
 		return errorMalformed
 	case errors.Is(err, ErrRateLimited):
 		return errorRateLimited
+	case errors.Is(err, serverfile.ErrMissing), errors.Is(err, serverfile.ErrUnreadable):
+		return errorFileUnreadable
+	case errors.Is(err, ErrLocalFile):
+		return errorFileRefused
 	default:
 		return errorUnreachable
 	}
@@ -302,8 +312,13 @@ func (s *Service) Add(ctx context.Context, scope addons.Scope, source NewSource,
 		return addons.Addon{}, ErrInvalidUserAgent
 	}
 	guide := strings.TrimSpace(source.Guide)
-	if guide != "" && !webAddress(guide) {
-		return addons.Addon{}, addons.ErrInvalidGuideURL
+	if guide != "" {
+		if _, file := serverfile.Path(guide); file && confined {
+			return addons.Addon{}, ErrLocalFile
+		}
+		if guide, err = addons.GuideSource(guide); err != nil {
+			return addons.Addon{}, err
+		}
 	}
 	options, err := DefaultOptions().apply(source.Options)
 	if err == nil {
@@ -515,10 +530,11 @@ func (s *Service) Refresh(ctx context.Context, scope addons.Scope, id accounts.I
 // RefreshDue fetches the lists not fetched for the settings'
 // LiveTvRefreshHours, or whose failure's backoff ended (see Backoff), or
 // every list when all is set, one after the other, of the enabled sources
-// of every scope.
+// of every scope. A list that is a file of the server is read again as
+// soon as it changed, or became unreadable (see serverfile.Changed).
 func (s *Service) RefreshDue(ctx context.Context, all bool) error {
 	rows, err := s.db.Query(ctx, `SELECT a.id, a.kind, a.manifest_url, a.manifest, a.enabled, a.refreshed_at,
-		a.owner_id IS NOT NULL AND NOT coalesce(u.is_administrator, false), i.checked_at, i.next_try_at
+		a.owner_id IS NOT NULL AND NOT coalesce(u.is_administrator, false), i.checked_at, i.next_try_at, i.error
 		FROM iptv_sources i JOIN addons a ON a.id = i.addon_id LEFT JOIN users u ON u.id = a.owner_id WHERE a.enabled`)
 	if err != nil {
 		return err
@@ -526,14 +542,25 @@ func (s *Service) RefreshDue(ctx context.Context, all bool) error {
 	type due struct {
 		addon    addons.Addon
 		confined bool
+		checked  *time.Time
+		failure  string
+		now      bool
 	}
 	var list []due
 	var d due
 	var manifestJSON []byte
-	var checked, retry *time.Time
+	var retry *time.Time
+	var checked *time.Time
 	if _, err := pgx.ForEachRow(rows, []any{&d.addon.ID, &d.addon.Kind, &d.addon.ManifestURL, &manifestJSON, &d.addon.Enabled,
-		&d.addon.RefreshedAt, &d.confined, &checked, &retry}, func() error {
-		if !all && !Due(checked, retry, s.interval(), s.now()) {
+		&d.addon.RefreshedAt, &d.confined, &checked, &retry, &d.failure}, func() error {
+		d.now = all || Due(checked, retry, s.interval(), s.now())
+		// The time is copied: the next row is scanned where it is.
+		d.checked = nil
+		if checked != nil {
+			at := *checked
+			d.checked = &at
+		}
+		if _, file := serverfile.Path(d.addon.ManifestURL); !d.now && !file {
 			return nil
 		}
 		d.addon.Manifest = stremio.Manifest{}
@@ -546,6 +573,9 @@ func (s *Service) RefreshDue(ctx context.Context, all bool) error {
 		return err
 	}
 	for _, d := range list {
+		if !d.now && !serverfile.Changed(d.addon.ManifestURL, d.checked, d.failure == errorFileUnreadable) {
+			continue
+		}
 		if err := s.refresh(ctx, d.addon, d.confined); err != nil {
 			return err
 		}
@@ -677,11 +707,11 @@ func storeList(ctx context.Context, tx pgx.Tx, source accounts.ID, entries []Ent
 			season, episode = &e.Season, &e.Episode
 		}
 		rows = append(rows, []any{source, key, len(rows) + 1, e.Name, number, e.Logo, e.Group, e.GuideID, e.URL, headers, kind, e.Series, season, episode,
-			e.Catchup.Type, e.Catchup.Days, e.Catchup.Source, e.GuideNumber, e.Favorite})
+			e.Catchup.Type, e.Catchup.Days, e.Catchup.Source, e.GuideNumber, e.Favorite, e.Protection})
 	}
 	if _, err := tx.CopyFrom(ctx, pgx.Identifier{"iptv_entries"},
 		[]string{"addon_id", "key", "position", "name", "number", "logo", "group_title", "guide_id", "url", "headers", "kind", "series_name", "season", "episode",
-			"catchup", "catchup_days", "catchup_source", "guide_number", "favorite"},
+			"catchup", "catchup_days", "catchup_source", "guide_number", "favorite", "protection"},
 		pgx.CopyFromRows(rows)); err != nil {
 		return err
 	}
@@ -911,11 +941,12 @@ const streamOrder = `(s.sort IS NULL), s.sort, s.rank, s.key`
 
 // Streams lists the enabled streams of a channel that shows, best first:
 // its entries' addresses, requested with the headers their list gives and
-// the source's User-Agent (see streamAgent), and its custom streams. Each
-// is labelled by its quality. Streams that failed last (see ReportStream)
-// come after the others, and those found dead or silent are left out
-// until their backoff ends (see hidden). A replay's stream is its
-// programme's address in the provider's archive (see ReplayID).
+// the source's User-Agent (see streamAgent), with how their list says
+// they are encrypted, and its custom streams. Each is labelled by its
+// quality. Streams that failed last (see ReportStream) come after the
+// others, and those found dead or silent are left out until their backoff
+// ends (see hidden). A replay's stream is its programme's address in the
+// provider's archive (see ReplayID).
 func (s *Service) Streams(ctx context.Context, source accounts.ID, id string) ([]stremio.Stream, error) {
 	if key, ok := strings.CutPrefix(id, prefix(source)); ok && (strings.HasPrefix(key, "vod:") || strings.HasPrefix(key, "ep:")) {
 		return s.vodStreams(ctx, source, key)
@@ -933,8 +964,8 @@ func (s *Service) Streams(ctx context.Context, source accounts.ID, id string) ([
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, `SELECT s.label, coalesce(s.custom_url, e.url), coalesce(e.headers, '{}'), coalesce(s.health_url, ''),
-		s.ok_at, s.failure, s.failed_at, s.failures FROM iptv_streams s
+	rows, err := s.db.Query(ctx, `SELECT s.label, coalesce(s.custom_url, e.url), coalesce(e.headers, '{}'), e.protection,
+		coalesce(s.health_url, ''), s.ok_at, s.failure, s.failed_at, s.failures FROM iptv_streams s
 		LEFT JOIN iptv_entries e ON e.addon_id = s.addon_id AND e.key = s.key
 		WHERE s.addon_id = $1 AND s.channel_id = $2 AND s.enabled AND (s.custom_url IS NOT NULL OR e.url IS NOT NULL)
 		ORDER BY `+streamOrder, source, strings.TrimPrefix(id, prefix(source)))
@@ -945,9 +976,10 @@ func (s *Service) Streams(ctx context.Context, source accounts.ID, id string) ([
 	now := s.now()
 	var label, address, checked string
 	var headers map[string]string
+	var protection *drm.Protection
 	var h health
-	if _, err := pgx.ForEachRow(rows, []any{&label, &address, &headers, &checked, &h.okAt, &h.failure, &h.failedAt, &h.failures}, func() error {
-		stream := stremio.Stream{Name: meta.Name, Description: label, URL: address}
+	if _, err := pgx.ForEachRow(rows, []any{&label, &address, &headers, &protection, &checked, &h.okAt, &h.failure, &h.failedAt, &h.failures}, func() error {
+		stream := stremio.Stream{Name: meta.Name, Description: label, URL: address, Protection: protection}
 		agent.apply(&stream, headers)
 		switch {
 		case checked != addressHash(address) || h.failure == nil:
@@ -956,7 +988,7 @@ func (s *Service) Streams(ctx context.Context, source accounts.ID, id string) ([
 			failing = append(failing, stream)
 		}
 		// pgx decodes JSON into the map given: each row starts empty.
-		headers = nil
+		headers, protection = nil, nil
 		return nil
 	}); err != nil {
 		return nil, err

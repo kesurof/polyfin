@@ -86,6 +86,7 @@ const common = {
     invalid_copy_from: 'This user no longer exists. Choose another one.',
     invalid_server_name: 'The server name must be 1 to 64 characters long.',
     invalid_language: 'Choose a language from the list.',
+    invalid_audio_region: 'Choose a region from the list.',
     invalid_catalog_limit: 'Titles read per catalog must be a whole number from 100 to 20,000.',
     invalid_channel_limit:
       'Channels read per Live TV catalog must be a whole number from 100 to 50,000.',
@@ -208,8 +209,12 @@ const common = {
       'Hours run from 00:00 to 24:00, and each end must come after its start (50 rows at most).',
     outside_allowed_hours:
       'This account cannot be used at this time. Try again during its allowed hours.',
+    outside_local_network:
+      'This account may only be used from the local network. Connect from there, or ask an administrator.',
+    remote_access_self:
+      'You are connected from outside the local network: turning off your own remote access would lock you out. Do it from the local network.',
     invalid_guide_url:
-      'Enter a guide address starting with https:// or http://, of at most 4,096 characters.',
+      'Enter a guide address starting with https:// or http://, of at most 4,096 characters, or the absolute path of a file on the server.',
     invalid_app: 'The app name must be 1 to 64 characters long, without special characters.',
     invalid_trickplay_interval:
       'The time between two thumbnails must be a whole number of seconds from 5 to 60.',
@@ -225,9 +230,12 @@ const common = {
     invalid_live_tv_refresh_hours:
       'The refresh interval must be a whole number of hours from 1 to 168.',
     invalid_local_scan_hours: 'The scan interval must be a whole number of hours from 0 to 168.',
+    invalid_watchlist_check_hours:
+      'The watchlist check interval must be a whole number of hours from 0 to 168.',
     invalid_custom_css: 'The custom CSS must take at most 2 MB.',
     invalid_custom_js: 'The custom JavaScript must take at most 2 MB.',
-    invalid_web_theme: 'Choose LumaaGlaass, None or Custom.',
+    invalid_web_theme: 'Choose a theme from the list.',
+    web_theme_locked: 'Your administrator chose your web player theme.',
     theme_copy_running: 'A copy of the theme is being made already. Try again in a moment.',
     theme_copy_nothing: 'The saved Custom texts load nothing from elsewhere.',
     theme_copy_failed: 'No file could be saved, so no copy was made.',
@@ -311,6 +319,14 @@ const common = {
     too_large: 'The file is too large.',
     destination_failed: 'The destination could not be read.',
     restore_failed: 'The restore could not start: nothing was changed.',
+    invalid_backup_passphrase:
+      'The backup passphrase is at least 12 characters long, on one line, and at most 256 bytes.',
+    passphrase_required: 'This backup is encrypted: open it with its passphrase first.',
+    wrong_passphrase: 'This passphrase does not open the backup.',
+    damaged_backup:
+      'This encrypted backup is damaged: part of it was changed or is missing. Nothing was restored.',
+    not_encrypted: 'This backup is not encrypted.',
+    unlock_failed: 'The backup could not be decrypted.',
     invalid_collection_read_hour:
       'Choose the hour collections are read at, or Never, from the list.',
     invalid_collection_library_apps:
@@ -321,6 +337,8 @@ const common = {
       'The update tool address must be a web address starting with http:// or https://, without a user name or a fragment.',
     invalid_update_tool_token:
       'The update tool token holds no spaces, and 1024 characters at most.',
+    invalid_provider:
+      'Check the identity provider: its issuer is a web address starting with http:// or https://, without a query or a fragment; the client ID, the secret and the claims hold no spaces; a claim names the user.',
     restart_unconfirmed:
       'Polyfin cannot tell whether something starts it again: confirm the warning first.',
     no_update: 'Polyfin Desktop offers no such update now.',
@@ -367,7 +385,12 @@ const common = {
       'This target’s address or token cannot be decrypted with POLYFIN_SECRET_KEY. Enter it again.',
     invalid_source_name: 'Source names must be 1 to 64 characters long.',
     invalid_source_address:
-      'Enter an address starting with https:// or http://, and for an Xtream Codes account a username and a password.',
+      'Enter an address starting with https:// or http://, or for a playlist the absolute path of a file on the server, and for an Xtream Codes account a username and a password.',
+    file_missing:
+      'There is no file at this path on the server. With Docker, give its path in the container, in a mounted volume.',
+    file_unreadable:
+      'Polyfin cannot read this file: check that it is a file, not a folder, and that Polyfin may read it.',
+    local_file_refused: 'Only administrators can use a file of the server.',
     invalid_user_agent:
       'A user agent is at most 512 characters, without line breaks or control characters.',
     tuner_added: 'This tuner is already a source of the server.',
@@ -475,6 +498,20 @@ const common = {
     app_import_expired:
       'What was read of the account is no longer kept, after a few minutes. Sign in again.',
     app_import_running: 'An import into this account is running. Wait for it to end.',
+    plex_sign_in_ended:
+      'The sign-in to Plex ended: it expired, was replaced, or was used by an import. Sign in with Plex again.',
+    plex_sign_in_pending: 'Plex has not signed you in yet. Finish signing in on Plex’s page.',
+    plex_unknown_profile: 'This Plex Home has no such profile. Sign in with Plex again.',
+    plex_profile_pin_refused: 'Plex refused this PIN. Type the profile’s PIN again.',
+    plex_profile_forbidden: 'Plex does not let this account switch to this profile.',
+    plex_unknown_server: 'Your Plex account does not reach this server. Choose another one.',
+    plex_not_owner:
+      'This Plex account does not own the server. Sign in with the owner’s Plex account.',
+    plex_server_unreachable:
+      'None of the addresses Plex gives for this server answered as that server. Check that it runs, and that Polyfin can reach it.',
+    plex_tv_failed: 'plex.tv did not answer as expected. Try again later.',
+    plex_tv_unreachable:
+      'plex.tv could not be reached. Check Polyfin’s connection to the internet.',
     app_not_connected: 'This app is not connected to the account any longer.',
     app_connection_stopped:
       'The app refused the sign-in Polyfin kept. Sign in again, with Stay connected ticked.',

@@ -120,6 +120,8 @@ type Service struct {
 	attached *cache.Cache[accounts.ID, []container.Attachment]
 	// feeds are the live streams being read (see feed.go).
 	feeds liveState
+	// dash is what ffprobe's DASH demuxer can do (see dashDemuxer).
+	dash dashSupport
 	// speech is what is known of versions' speech, and of the subtitles
 	// synced to it (see speech.go).
 	speech speechState
@@ -131,6 +133,9 @@ type Service struct {
 	// torrentFiles are the subtitle files inside the torrents of versions
 	// (see torrentsubtitles.go).
 	torrentFiles torrentSubtitleState
+	// switches are the versions play sessions went on from once theirs
+	// failed (see switch.go).
+	switches switchState
 }
 
 // New returns a playback service running ffprobe from ffprobePath, reading
@@ -182,8 +187,9 @@ func New(db *pgxpool.Pool, opener source.Opener, ffprobePath string, signer Sign
 		trackCues:   cache.New[trackKey, []subtitles.Cue](50, time.Hour),
 		attached:    cache.New[accounts.ID, []container.Attachment](8, 10*time.Minute),
 		speech:      newSpeechState(),
+		switches:    newSwitchState(),
 	}
-	server.live = s.ServeLive
+	server.live = s.serveLive
 	return s, nil
 }
 
@@ -193,7 +199,9 @@ func (s *Service) Close() error {
 }
 
 // open opens a version's source in the cache, renewing its link when it
-// expires. The caller releases it.
+// expires, with its mirrors, the same file other addons list, which the
+// cache reads on from once it fails (see source.Location.Mirrors). The
+// caller releases it.
 func (s *Service) open(version library.Version) *source.Source {
 	if version.Torrent != nil {
 		src := s.sources.Open(version.ID, s.torrentLocation(version), nil)
@@ -204,6 +212,20 @@ func (s *Service) open(version library.Version) *source.Source {
 		}
 		return src
 	}
+	location, renew := s.location(version)
+	for _, mirror := range version.Mirrors {
+		at, renewMirror := s.location(mirror)
+		location.Mirrors = append(location.Mirrors, source.Mirror{Location: at, Renew: renewMirror})
+	}
+	return s.sources.Open(version.ID, location, renew)
+}
+
+// location is where the source cache reads a version's link, and how it
+// renews it: through its addon, but for a local folder's file.
+func (s *Service) location(version library.Version) (source.Location, source.Renewer) {
+	if location, ok := s.storedLocation(version); ok {
+		return location, nil
+	}
 	var renew source.Renewer
 	if s.renew != nil {
 		renew = func(ctx context.Context) (source.Location, error) {
@@ -211,10 +233,7 @@ func (s *Service) open(version library.Version) *source.Source {
 			return locationOf(fresh), err
 		}
 	}
-	if location, ok := s.storedLocation(version); ok {
-		return s.sources.Open(version.ID, location, nil)
-	}
-	return s.sources.Open(version.ID, locationOf(version), renew)
+	return locationOf(version), renew
 }
 
 // storedLookup bounds finding where a local file is read from (see
@@ -406,6 +425,20 @@ func (s *Service) TorrentReceiving(version library.Version) bool {
 		return false
 	}
 	return time.Since(s.torrents.Received(hash)) < torrent.PieceTimeout
+}
+
+// TorrentProgress tells how the start of a torrent version's torrent goes
+// (see torrent.Engine.Progress); false for a link, or a torrent that does
+// not run.
+func (s *Service) TorrentProgress(version library.Version) (torrent.Progress, bool) {
+	if version.Torrent == nil || s.torrents == nil {
+		return torrent.Progress{}, false
+	}
+	hash, err := torrent.ParseHash(version.Torrent.InfoHash)
+	if err != nil {
+		return torrent.Progress{}, false
+	}
+	return s.torrents.Progress(hash)
 }
 
 // TorrentUnstarted reports whether err tells of a torrent that could not
